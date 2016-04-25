@@ -22,22 +22,23 @@
 #include <dsp\h\dsp.h>
 #include <peripherals\adc\h\ADCChannelDrv.h>
 #include <peripherals\pwm\h\OCPWMDrv.h>
+#include <peripherals\timers\inc\ex_timer.h>
 
 #include "..\inc\filter.h"
 #include "..\inc\modulate.h"
 #include "..\inc\complexmultiply.h"
 #include "..\inc\transform.h"
-#include <peripherals\timers\inc\ex_timer.h>
+
 
 //#define __DEBUG_OVERRIDE_INPUT
 //#define __DEBUG_FILTERS
 //#define __DEBUG_SHIFTERS
 //#define __DEBUG_TRANSFORMS
 
-#define FRAME_SIZE 	128
+#define FRAME_SIZE 	64
 #define PRESSED		1
 #define UNPRESSED	0
-#define NSamples	10
+#define NSamples	20
 
 
 
@@ -97,23 +98,24 @@ fractcomplex compXshifted[FRAME_SIZE]__attribute__ ((space(ymemory),far));
 
 //variables for audio processing
 fractional		frctAudioIn			[FRAME_SIZE]__attribute__ ((space(xmemory),far));
-fractional		frctAudioWorkSpace	[FRAME_SIZE]__attribute__ ((space(ymemory),far));
+fractional		frctAudioWorkSpace	[FRAME_SIZE]__attribute__ ((space(xmemory),far));
 fractional		frctAudioOut		[FRAME_SIZE]__attribute__ ((space(xmemory),far));
 fractcomplex	compAudioOut		[FRAME_SIZE]__attribute__ ((space(xmemory),far));
-fractcomplex	compCarrierSignal	[FRAME_SIZE]__attribute__ ((space(ymemory),far));
+fractcomplex	compCarrierSignal	[FRAME_SIZE]__attribute__ ((space(xmemory),far));
 
 //Create the driver handles
 ADCChannelHandle *pADCChannelHandle 	= &adcChannelHandle;
 OCPWMHandle 	*pOCPWMHandle 		= &ocPWMHandle;
 
-
+// ROWS -> COLS
 int AudioOut [FRAME_SIZE][NSamples]__attribute__ ((space(ymemory),far));
-
+int filter [FRAME_SIZE]__attribute__ ((space(ymemory),far));
 
 // Functions devlarations
 void PlayRecorded(int sampleRow);
 void RecordAudio(int sampleRow);
-void ApplyTransformation();
+void CreateFilter();
+void ApplyFilter();
 void CountPitch();
 
 int PresentRow;
@@ -127,13 +129,16 @@ int main(void)
 	int iSwitch2Pressed = UNPRESSED;
 	int iShiftAmount = 1;
 	
-	// time per cycle
-	int clock_frequency, cycle_time, delay_time;
-	unsigned long delay_cycles;
+	// time per cycleÇ
+	float clock_frequency, cycle_time, delay_time;
+	float delay_time2;
+	unsigned long delay_cycles, delay_cycles2;
 	clock_frequency = 40e6;
 	cycle_time = 1 / clock_frequency;
-	delay_time = 0.2;
+	delay_time = 0.1;
 	delay_cycles = delay_time / cycle_time;
+	delay_time2 = 0.02;
+	delay_cycles2 = delay_time2 / cycle_time;
 
 	//float fCarrierFrequency = 1;
 	//createComplexSignal(fCarrierFrequency,FRAME_SIZE,compCarrierSignal);
@@ -165,39 +170,14 @@ int main(void)
 	//BUTTON 2 -> PLAY
 
 
+	// Do forever
 	while(1)
 	{		
 		
 
-		// insert delay
-		
-
-		//while(ADCChannelIsBusy(pADCChannelHandle));
-			//Read in the Audio Samples from the ADC
-		//DCChannelRead	(pADCChannelHandle,frctAudioIn,FRAME_SIZE);
-		//VectorCopy(FRAME_SIZE,frctAudioOut,frctAudioIn);
-	
-
-
-
-	//	#ifndef __DEBUG_OVERRIDE_INPUT//if not in debug mode, read audio in from the ADC
-			//Wait till the ADC has a new frame available
-	//	#endif
-
-	//	filter the negative part of the Fourier trasform
-	//	fourierTransform(FRAME_SIZE,compX,frctAudioIn);
-	//	filterNegativeFreq(FRAME_SIZE,compXfiltered,compX);
-
-
-	//	Initialize the values for the Pitch detection
-		//MaxFreqaValue = 0;
-		//MaxValue = 0;		
-		//i=0;
-		//module = 0;
-		cycles_run = 0;
-
 	// DIFFERENTS ACTIONS ARE MADE DEPENDING WHICH SWITCH IS PRESSED
 		// Record
+		//(SWITCH_S2 == 0 && SWITCH_S1 ==1)
 		if (CheckSwitchS1() == 1){
 
 			// Step 1: record the sound
@@ -215,29 +195,41 @@ int main(void)
 	    	GREEN_LED = 1;
 
 	    	// step 2: determine the interval
-	    	//CountPitch();
+	    	CountPitch();
 	    	// step 3: apply transformation
-
+	    	CreateFilter();
+	    	ApplyFilter();
 		}
 
 
 
 // Button 2 action: play sound
-		else if(CheckSwitchS2() == 1){
+		if(CheckSwitchS2() == 1){
 			YELLOW_LED = 1;
 	    	RED_LED = 1;
 	    	GREEN_LED = 0;
 
+	    	OCPWMInit		(pOCPWMHandle,ocPWMBuffer);			
+			OCPWMStart		(pOCPWMHandle);	
+
 	    	for(n = 0; n < NSamples; n++){
+	    	/*	PlayRecorded(n);
+	 			//while(cycles_run < 20){		
+	    			__delay32( delay_cycles);
+					while(OCPWMIsBusy(pOCPWMHandle));	
+					OCPWMWrite (pOCPWMHandle,frctAudioOut,FRAME_SIZE);
+					cycles_run++;
+					*/	  
+				cycles_run=0;
 	    		PlayRecorded(n);
-	    		while(cycles_run < 20){		
-	    			//__delay32( delay_cycles);
-					//while(OCPWMIsBusy(pOCPWMHandle));	
+	 			while(cycles_run < 20){		
+	    		//	__delay32( delay_cycles2);
+					while(OCPWMIsBusy(pOCPWMHandle));	
 					OCPWMWrite (pOCPWMHandle,frctAudioOut,FRAME_SIZE);
 					cycles_run++;	    			
 	    		}
-
 	    	}
+
 			OCPWMStop	(pOCPWMHandle);
 	    	
 	    	YELLOW_LED = 1;
@@ -245,55 +237,6 @@ int main(void)
 	    	GREEN_LED = 1;
 		}
 
-/*
-	//	Extract the highest value in the frequency domain and the index of the belonging step in the interval
-		for(i = 1 ; i<64;i++){
-			module = pow(compXfiltered[i].real,2) + pow( compXfiltered[i].imag,2);
-			if(module > MaxValue){
-				MaxFreqaValue = i;
-				MaxValue = module;
-			}
-		}
-
-
-		//	the frequency spectrum goes from 0 to 4kHz and its represented in a 64 step interval
-			LowInterval = 20;
-			HighInterval = 40;
-
-		// Find the belonging interval of the Pitch
-		if(LowInterval > MaxFreqaValue){
-			YELLOW_LED = 1;
-	        RED_LED = 1;
-	        GREEN_LED = 0;
-		}
-		else if  (LowInterval <= MaxFreqaValue && HighInterval >= MaxFreqaValue){
-			YELLOW_LED = 0;
-	        RED_LED = 1;
-	        GREEN_LED = 1;
-		}
-		else if(HighInterval < MaxFreqaValue && 64 >= MaxFreqaValue){
-			YELLOW_LED = 1;
-	        RED_LED = 0;
-	        GREEN_LED = 1;
-		}
-/*		else{
-			YELLOW_LED = 1;
-	        RED_LED = 1;
-	        GREEN_LED = 1;
-		}*/
-
-/*
-		while(OCPWMIsBusy(pOCPWMHandle));	
-		//Write the real part of the frequency shifted complex audio signal to the output
-		OCPWMWrite (pOCPWMHandle,frctAudioOut,FRAME_SIZE);
-		*/
-		
-	
-
-		//Wait till the OC is available for a new frame
-		//while(OCPWMIsBusy(pOCPWMHandle));	
-		//Write the real part of the frequency shifted complex audio signal to the output
-		//OCPWMWrite (pOCPWMHandle,frctAudioOut,FRAME_SIZE);
 
 		
 	}
@@ -302,7 +245,12 @@ int main(void)
 
 
 
+/***********************************
+RecordAudio: passes the present captured frame in the buffer into a concrete position in the
+storage array.
 
+Red light will activate if we receive unexpected parameters.
+************************************/
 void RecordAudio(int sampleRow){
 
 	int a = 0;
@@ -316,7 +264,7 @@ void RecordAudio(int sampleRow){
 		for(a = 0 ; a <FRAME_SIZE; a++){
 
 		//VectorCopy(FRAME_SIZE,frctAudioOut,frctAudioIn);
-			AudioOut[a][sampleRow] = frctAudioIn[a];
+			AudioOut[a][sampleRow] = frctAudioIn[a]; // MEMCOPY
 		}
 	}else {
 		/*Error message*/
@@ -329,13 +277,20 @@ void RecordAudio(int sampleRow){
 
 
 
+/***********************************
+PlayRecorded: plays through the audio source output, a single frame in the stored array.
+We will be playing that frame for various executions since we don´t want a tone but a constant 
+time sound
+
+Red light will activate if we receive unexpected parameters.
+************************************/
+
 void PlayRecorded(int sampleRow){
 
 
 		int a = 0;
 	if (sampleRow < NSamples){
-		OCPWMInit		(pOCPWMHandle,ocPWMBuffer);			
-		OCPWMStart		(pOCPWMHandle);	
+
 		for(a = 0 ; a <FRAME_SIZE; a++){
 			frctAudioOut[a]= AudioOut[a][sampleRow];
 		}
@@ -351,6 +306,14 @@ void PlayRecorded(int sampleRow){
 }
 
 
+
+
+
+/***********************************
+CountPitch(): After we have a full frame storage. We will extract where 
+can their Pitches be found which will determine the kind of signal processing 
+that will go through.
+************************************/
 
 void CountPitch(){
 
@@ -409,19 +372,78 @@ void CountPitch(){
 }
 
 
-void ApplyTransformation(){
+/***********************************
+ApplyTransformation(): Apply transformation will modify each of the stored frames applying 
+a frequency filter over all of them.
+The kind of filter used depends on the picth distributions. The process requires that each frame is
+converted with the FFT and the iFFT afterwards.
+
+************************************/
+
+
+void CreateFilter(){
 	//part 1: find the case
 	// a) high frequencies 
-	if (countHighPitch >=6){
-
+	int a = 0;
+	if (countLowPitch >=6){
+		for(a = 0; a<FRAME_SIZE; a++){
+			if(a<LowInterval){
+				filter[a] = 1;
+			}
+			else{
+				filter[a] = 0;
+			}
+		}
+			
 	}
 	// b) high frequencies
-	else if (countLowPitch >=6){
-		
+	else if (countHighPitch >=6){
+		for(a = 0; a<FRAME_SIZE; a++){
+			if(a>=HighInterval){
+				filter[a] = 1;
+			}
+			else{
+				filter[a] = 0;
+			}
+		}
 	}
 	// c) equally distributed
 	else{
-
+		for(a = 0; a<FRAME_SIZE; a++){
+			if(a>=HighInterval){
+				filter[a] = 2;
+			}
+			else if(a<LowInterval){
+				filter[a] = 0;
+			}
+			else{
+				filter[a] = 1;
+			}
+		}
 	}
 
+}
+
+
+void ApplyFilter(){
+
+for (n = 0;n<NSamples;n++){
+
+	for(a=0;a<FRAME_SIZE;a++){
+		frctAudioIn[a]=AudioOut[a][n];
+	}
+
+	fourierTransform(FRAME_SIZE,compX,frctAudioIn);
+	filterNegativeFreq(FRAME_SIZE,compXfiltered,compX);
+	//shiftFreqSpectrum(FRAME_SIZE,iShiftAmount,compXshifted,compXfiltered);
+	
+	for(a=0;a<FRAME_SIZE;a++){
+		compXshifted[a] = compXfiltered[a]*filter[a];
+		}
+	inverseFourierTransform(FRAME_SIZE,frctAudioOut,compXshifted);
+
+	for(a=0;a<FRAME_SIZE;a++){
+		AudioOut[a][n]=frctAudioOut[a];
+	}
+	}
 }
