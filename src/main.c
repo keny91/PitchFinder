@@ -39,6 +39,9 @@
 #define PRESSED		1
 #define UNPRESSED	0
 #define NSamples	20
+#define LowInterval	20
+#define HighInterval	40
+
 
 
 
@@ -94,7 +97,7 @@ OCPWMHandle 	ocPWMHandle;
 fractcomplex compx[FRAME_SIZE]__attribute__ ((space(ymemory),far));
 fractcomplex compX[FRAME_SIZE]__attribute__ ((space(ymemory),far));
 fractcomplex compXfiltered[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-fractcomplex compXshifted[FRAME_SIZE]__attribute__ ((space(ymemory),far));
+int compXshifted[FRAME_SIZE]__attribute__ ((space(ymemory),far));
 
 //variables for audio processing
 fractional		frctAudioIn			[FRAME_SIZE]__attribute__ ((space(xmemory),far));
@@ -196,7 +199,7 @@ int main(void)
 
 	    	// step 2: determine the interval
 	    	CountPitch();
-	    	// step 3: apply transformation
+	    	// step 3: create a filter and apply transformation in Frequency Domain
 	    	CreateFilter();
 	    	ApplyFilter();
 		}
@@ -323,13 +326,11 @@ void CountPitch(){
 	int module;
 	int MaxFreqaValue ;
 	int MaxValue;
-	int LowInterval;
-	int HighInterval;
+
 	int a = 0;
 	int na,in = 0;
 
-	LowInterval = 20;
-	HighInterval = 40;
+
 	
 	for(na = 0; na < NSamples; na++){
 	    
@@ -426,7 +427,8 @@ void CreateFilter(){
 
 
 void ApplyFilter(){
-
+int n = 0;
+int a = 0;
 for (n = 0;n<NSamples;n++){
 
 	for(a=0;a<FRAME_SIZE;a++){
@@ -434,11 +436,15 @@ for (n = 0;n<NSamples;n++){
 	}
 
 	fourierTransform(FRAME_SIZE,compX,frctAudioIn);
-	filterNegativeFreq(FRAME_SIZE,compXfiltered,compX);
+	filterNegativeFreq(FRAME_SIZE,frctAudioIn,compX);
 	//shiftFreqSpectrum(FRAME_SIZE,iShiftAmount,compXshifted,compXfiltered);
 	
 	for(a=0;a<FRAME_SIZE;a++){
-		compXshifted[a] = compXfiltered[a]*filter[a];
+		if(filter[a] == 0)
+		//compXshifted[a] = compXfiltered[a]*filter[a];
+			compXshifted[a] = filter[a];
+		else
+			compXshifted[a] = frctAudioIn[a];
 		}
 	inverseFourierTransform(FRAME_SIZE,frctAudioOut,compXshifted);
 
