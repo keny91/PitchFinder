@@ -13,6 +13,7 @@
 * Version:
 * 			Version 1.00	27/03/2016	Luis Herranz	Initial Version, clean
 			Version 1.1		16/04/2016	Luis Herranz	Auralization Version, on progress
+			Version 2.0		28/04/2016	Luis Herranz	Auralization Version, completed, function up
 *
 ***************************************************************************************************/
 #include <p33FJ256GP506.h>
@@ -30,10 +31,6 @@
 #include "..\inc\transform.h"
 
 
-//#define __DEBUG_OVERRIDE_INPUT
-//#define __DEBUG_FILTERS
-//#define __DEBUG_SHIFTERS
-//#define __DEBUG_TRANSFORMS
 
 #define FRAME_SIZE 	64
 #define PRESSED		1
@@ -42,46 +39,6 @@
 #define LowInterval	20
 #define HighInterval	40
 
-
-
-
-#define MODE_DO_NOTHING		0
-
-/*
-#define UPPER_CARRIER_FREQ 		625	
-#define LOWER_CARRIER_FREQ 		62.5
-#define CARRIER_INC				62.5
-#define CARRIER_DEC				62.5
-
-//Modes are used to change the way the device does things, pressing switch 1 changes the mode
-#define MODE_DO_NOTHING			0 //the device passes the audio straight through to the output
-#define MODE_BAND_PASS_FILTER	1 //the device uses the band pass filter to remove negative audio frequencies
-#define MODE_BAND_PASS_SHIFT	3 //the device band pass filters and shifts the audio frequencies
-#define MODE_LOW_PASS_FILTER	2 //the device uses the shifted low pass filter to remove negative audio frequencies
-#define MODE_LOW_PASS_SHIFT		4 //the device uses shifted low pass filters and shifts the audio frequencies
-#define MODE_FREQ_DOMAIN		5 //the device works on the audio signal in the frequency domain
-#define MODE_TOTAL				6
-
-
-
-//Allocate memory for input and output buffers
-fractional		adcBuffer		[ADC_CHANNEL_DMA_BUFSIZE] 	__attribute__((space(dma)));
-fractional		ocPWMBuffer		[OCPWM_DMA_BUFSIZE]		__attribute__((space(dma)));
-
-//variables for FFT
-fractcomplex compx[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-fractcomplex compX[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-fractcomplex compXfiltered[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-fractcomplex compXshifted[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-
-//variables for audio processing
-fractional		frctAudioIn			[FRAME_SIZE]__attribute__ ((space(xmemory),far));
-fractional		frctAudioWorkSpace	[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-fractional		frctAudioOut		[FRAME_SIZE]__attribute__ ((space(xmemory),far));
-fractcomplex	compAudioOut		[FRAME_SIZE]__attribute__ ((space(xmemory),far));
-fractcomplex	compCarrierSignal	[FRAME_SIZE]__attribute__ ((space(ymemory),far));
-
-*/
 
 
 
@@ -118,7 +75,7 @@ int filter [FRAME_SIZE]__attribute__ ((space(ymemory),far));
 void PlayRecorded(int sampleRow);
 void RecordAudio(int sampleRow);
 void CreateFilter();
-void ApplyFilter();
+//void ApplyFilter();
 void CountPitch();
 
 int PresentRow;
@@ -127,11 +84,7 @@ int countHighPitch, countMedPitch, countLowPitch;
 
 int main(void)
 {
-	int iMode = MODE_DO_NOTHING;
-	int iSwitch1Pressed = UNPRESSED;
-	int iSwitch2Pressed = UNPRESSED;
-	int iShiftAmount = 1;
-	
+
 	// time per cycle«
 	float clock_frequency, cycle_time, delay_time;
 	float delay_time2;
@@ -150,17 +103,8 @@ int main(void)
 	ex_sask_init( );
 	//SASKInit();
 
-	//Initialise Audio input and output function
-	//ADCChannelInit	(pADCChannelHandle,adcBuffer);			
-	//OCPWMInit		(pOCPWMHandle,ocPWMBuffer);			
-
-	//Start Audio input and output function
-	//ADCChannelStart	(pADCChannelHandle);
-	//OCPWMStart		(pOCPWMHandle);	
-	
 		
-		
-	int i = 0;
+	//int i = 0;
 	int n = 0;
 
 
@@ -201,7 +145,7 @@ int main(void)
 	    	CountPitch();
 	    	// step 3: create a filter and apply transformation in Frequency Domain
 	    	CreateFilter();
-	    	ApplyFilter();
+	    	//ApplyFilter();
 		}
 
 
@@ -386,7 +330,16 @@ void CreateFilter(){
 	//part 1: find the case
 	// a) high frequencies 
 	int a = 0;
+	int n = 0;
+	for (n = 0;n<NSamples;n++){
+		for(a=0;a<FRAME_SIZE;a++){
+			frctAudioIn[a]=AudioOut[a][n];
+		}
+		VectorCopy(FRAME_SIZE,frctAudioOut,frctAudioIn);
+
 	if (countLowPitch >=6){
+		shiftedLowPassFilter(FRAME_SIZE,frctAudioOut,frctAudioIn);
+		/*
 		for(a = 0; a<FRAME_SIZE; a++){
 			if(a<LowInterval){
 				filter[a] = 1;
@@ -395,10 +348,13 @@ void CreateFilter(){
 				filter[a] = 0;
 			}
 		}
+		*/
 			
 	}
 	// b) high frequencies
 	else if (countHighPitch >=6){
+		bandPassFilter(FRAME_SIZE,frctAudioOut,frctAudioIn);
+		/*
 		for(a = 0; a<FRAME_SIZE; a++){
 			if(a>=HighInterval){
 				filter[a] = 1;
@@ -406,11 +362,17 @@ void CreateFilter(){
 			else{
 				filter[a] = 0;
 			}
+			
 		}
+		*/
 	}
 	// c) equally distributed
 	else{
+		shiftedLowPassFilter(FRAME_SIZE,frctAudioOut,frctAudioIn);
+		/*
 		for(a = 0; a<FRAME_SIZE; a++){
+			
+			
 			if(a>=HighInterval){
 				filter[a] = 2;
 			}
@@ -419,13 +381,19 @@ void CreateFilter(){
 			}
 			else{
 				filter[a] = 1;
+				
 			}
 		}
+		*/
 	}
+			for(a=0;a<FRAME_SIZE;a++){
+			AudioOut[a][n]=frctAudioOut[a];
+		}
 
 }
+}
 
-
+/*
 void ApplyFilter(){
 int n = 0;
 int a = 0;
@@ -453,3 +421,4 @@ for (n = 0;n<NSamples;n++){
 	}
 	}
 }
+*/
